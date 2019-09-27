@@ -16,6 +16,12 @@ class MonodepthOptions:
     def __init__(self):
         self.parser = argparse.ArgumentParser(description="Monodepthv2 options")
 
+        # CUSTOM options
+        self.parser.add_argument("--gray",
+                                 type=bool,
+                                 help="Gray scale (3 ch) if True",
+                                 default=False)
+
         # PATHS
         self.parser.add_argument("--data_path",
                                  type=str,

@@ -9,7 +9,8 @@ import os
 import hashlib
 import zipfile
 from six.moves import urllib
-
+import networks
+import torch
 
 def readlines(filename):
     """Read all the lines in a text file and return as a list
@@ -112,3 +113,32 @@ def download_model_if_doesnt_exist(model_name):
             f.extractall(model_path)
 
         print("   Model unzipped to {}".format(model_path))
+
+
+def load_model(load_weights_folder, num_layers=18):
+    # load model files
+    load_weights_folder = os.path.expanduser(load_weights_folder)
+    assert os.path.isdir(load_weights_folder), \
+        "Cannot find a folder at {}".format(load_weights_folder)
+
+    print("-> Loading weights from {}".format(load_weights_folder))
+
+    # encoder
+    encoder_path = os.path.join(load_weights_folder, "encoder.pth")
+    encoder_dict = torch.load(encoder_path)
+    encoder = networks.ResnetEncoder(num_layers, False)
+    model_dict = encoder.state_dict()
+    encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
+    encoder.cuda()
+    encoder.eval()
+
+    # decoder
+    decoder_path = os.path.join(load_weights_folder, "depth.pth")
+    depth_decoder = networks.DepthDecoder(encoder.num_ch_enc)
+    depth_decoder.load_state_dict(torch.load(decoder_path))
+    depth_decoder.cuda()
+    depth_decoder.eval()
+
+    print("-> Computing predictions with size {}x{}".format(
+        encoder_dict['width'], encoder_dict['height']))
+    return encoder_dict, encoder, depth_decoder

@@ -8,13 +8,15 @@ import torch
 from torch.utils.data import DataLoader
 
 from layers import disp_to_depth
-from utils import readlines
+from utils import readlines, load_model
 from options import MonodepthOptions
 import datasets
 import networks
 
 cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
 
+
+custom_load = lambda *a,**k: np.load(*a, allow_pickle=True, **k)
 
 splits_dir = os.path.join(os.path.dirname(__file__), "splits")
 
@@ -67,41 +69,16 @@ def evaluate(opt):
 
     if opt.ext_disp_to_eval is None:
 
-        opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
-
-        assert os.path.isdir(opt.load_weights_folder), \
-            "Cannot find a folder at {}".format(opt.load_weights_folder)
-
-        print("-> Loading weights from {}".format(opt.load_weights_folder))
-
-        filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
-        encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
-        decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
-
-        encoder_dict = torch.load(encoder_path)
-
-        dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
-                                           encoder_dict['height'], encoder_dict['width'],
-                                           [0], 4, is_train=False)
-        dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
-                                pin_memory=True, drop_last=False)
-
-        encoder = networks.ResnetEncoder(opt.num_layers, False)
-        depth_decoder = networks.DepthDecoder(encoder.num_ch_enc)
-
-        model_dict = encoder.state_dict()
-        encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
-        depth_decoder.load_state_dict(torch.load(decoder_path))
-
-        encoder.cuda()
-        encoder.eval()
-        depth_decoder.cuda()
-        depth_decoder.eval()
-
+        encoder_dict, encoder, depth_decoder = load_model(opt.load_weights_folder, opt.num_layers)
         pred_disps = []
 
-        print("-> Computing predictions with size {}x{}".format(
-            encoder_dict['width'], encoder_dict['height']))
+        # prepare dataset
+        filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
+        dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
+                                           encoder_dict['height'], encoder_dict['width'],
+                                           [0], 4, is_train=False, gray=opt.gray)
+        dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
+                                pin_memory=True, drop_last=False)
 
         with torch.no_grad():
             for data in dataloader:
@@ -163,7 +140,7 @@ def evaluate(opt):
         quit()
 
     gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
-    gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+    gt_depths = custom_load(gt_path, fix_imports=True, encoding='latin1')["data"]
 
     print("-> Evaluating")
 

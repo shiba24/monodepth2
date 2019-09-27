@@ -16,12 +16,13 @@ import matplotlib as mpl
 import matplotlib.cm as cm
 
 import torch
-from torchvision import transforms, datasets
+from torchvision import transforms
+
 
 import networks
 from layers import disp_to_depth
-from utils import download_model_if_doesnt_exist
-
+from utils import download_model_if_doesnt_exist, load_model
+from datasets.mono_dataset import pil_loader
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -29,6 +30,10 @@ def parse_args():
 
     parser.add_argument('--image_path', type=str,
                         help='path to a test image or folder of images', required=True)
+    parser.add_argument("--gray", type=bool,
+                        help="Gray scale (3 ch) if True", default=False)
+    parser.add_argument("--load_weights_folder", type=str,
+                        help="name of model to load")
     parser.add_argument('--model_name', type=str,
                         help='name of a pretrained model to use',
                         choices=[
@@ -53,42 +58,47 @@ def parse_args():
 def test_simple(args):
     """Function to predict for a single image or folder of images
     """
-    assert args.model_name is not None, \
-        "You must specify the --model_name parameter; see README.md for an example"
+    if args.model_name is None and args.load_weights_folder is None:
+        raise AssertionError("You must specify the --model_name parameter or --load_weights_folder")
 
     if torch.cuda.is_available() and not args.no_cuda:
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
 
-    download_model_if_doesnt_exist(args.model_name)
-    model_path = os.path.join("models", args.model_name)
-    print("-> Loading model from ", model_path)
-    encoder_path = os.path.join(model_path, "encoder.pth")
-    depth_decoder_path = os.path.join(model_path, "depth.pth")
+    if args.load_weights_folder:
+        encoder_dict, encoder, depth_decoder = load_model(args.load_weights_folder, num_layers=18)
+        feed_height = encoder_dict['height']
+        feed_width = encoder_dict['width']
+    else:
+        download_model_if_doesnt_exist(args.model_name)
+        model_path = os.path.join("models", args.model_name)
+        print("-> Loading model from ", model_path)
+        encoder_path = os.path.join(model_path, "encoder.pth")
+        depth_decoder_path = os.path.join(model_path, "depth.pth")
 
-    # LOADING PRETRAINED MODEL
-    print("   Loading pretrained encoder")
-    encoder = networks.ResnetEncoder(18, False)
-    loaded_dict_enc = torch.load(encoder_path, map_location=device)
+        # LOADING PRETRAINED MODEL
+        print("   Loading pretrained encoder")
+        encoder = networks.ResnetEncoder(18, False)
+        loaded_dict_enc = torch.load(encoder_path, map_location=device)
 
-    # extract the height and width of image that this model was trained with
-    feed_height = loaded_dict_enc['height']
-    feed_width = loaded_dict_enc['width']
-    filtered_dict_enc = {k: v for k, v in loaded_dict_enc.items() if k in encoder.state_dict()}
-    encoder.load_state_dict(filtered_dict_enc)
-    encoder.to(device)
-    encoder.eval()
+        # extract the height and width of image that this model was trained with
+        feed_height = loaded_dict_enc['height']
+        feed_width = loaded_dict_enc['width']
+        filtered_dict_enc = {k: v for k, v in loaded_dict_enc.items() if k in encoder.state_dict()}
+        encoder.load_state_dict(filtered_dict_enc)
+        encoder.to(device)
+        encoder.eval()
 
-    print("   Loading pretrained decoder")
-    depth_decoder = networks.DepthDecoder(
-        num_ch_enc=encoder.num_ch_enc, scales=range(4))
+        print("   Loading pretrained decoder")
+        depth_decoder = networks.DepthDecoder(
+            num_ch_enc=encoder.num_ch_enc, scales=range(4))
 
-    loaded_dict = torch.load(depth_decoder_path, map_location=device)
-    depth_decoder.load_state_dict(loaded_dict)
+        loaded_dict = torch.load(depth_decoder_path, map_location=device)
+        depth_decoder.load_state_dict(loaded_dict)
 
-    depth_decoder.to(device)
-    depth_decoder.eval()
+        depth_decoder.to(device)
+        depth_decoder.eval()
 
     # FINDING INPUT IMAGES
     if os.path.isfile(args.image_path):
@@ -113,7 +123,12 @@ def test_simple(args):
                 continue
 
             # Load image and preprocess
-            input_image = pil.open(image_path).convert('RGB')
+            # input_image = pil.open(image_path).convert('RGB')
+            input_image = pil_loader(image_path, gray=args.gray)
+            if args.gray:
+                image_path = os.path.join(os.path.dirname(image_path), 'gray_' + os.path.basename(image_path))
+                input_image.save(image_path)
+
             original_width, original_height = input_image.size
             input_image = input_image.resize((feed_width, feed_height), pil.LANCZOS)
             input_image = transforms.ToTensor()(input_image).unsqueeze(0)

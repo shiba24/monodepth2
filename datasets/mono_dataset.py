@@ -16,13 +16,24 @@ import torch
 import torch.utils.data as data
 from torchvision import transforms
 
+RGB2LLL = (
+    0.299, 0.587, 0.114, 0,
+    0.299, 0.587, 0.114, 0,
+    0.299, 0.587, 0.114, 0)
 
-def pil_loader(path):
+
+def pil_loader(path, gray=False):
     # open path as file to avoid ResourceWarning
     # (https://github.com/python-pillow/Pillow/issues/835)
     with open(path, 'rb') as f:
         with Image.open(f) as img:
-            return img.convert('RGB')
+            if gray:
+                if img.mode == 'L':
+                    return img.convert('RGB')
+                else:
+                    return img.convert('RGB', RGB2LLL)
+            else:
+                return img.convert('RGB')
 
 
 class MonoDataset(data.Dataset):
@@ -46,7 +57,8 @@ class MonoDataset(data.Dataset):
                  frame_idxs,
                  num_scales,
                  is_train=False,
-                 img_ext='.jpg'):
+                 img_ext='.jpg',
+                 gray=False):
         super(MonoDataset, self).__init__()
 
         self.data_path = data_path
@@ -60,6 +72,7 @@ class MonoDataset(data.Dataset):
 
         self.is_train = is_train
         self.img_ext = img_ext
+        self.gray = gray
 
         self.loader = pil_loader
         self.to_tensor = transforms.ToTensor()

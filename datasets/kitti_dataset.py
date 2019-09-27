@@ -42,7 +42,7 @@ class KITTIDataset(MonoDataset):
         return os.path.isfile(velo_filename)
 
     def get_color(self, folder, frame_index, side, do_flip):
-        color = self.loader(self.get_image_path(folder, frame_index, side))
+        color = self.loader(self.get_image_path(folder, frame_index, side), self.gray)
 
         if do_flip:
             color = color.transpose(pil.FLIP_LEFT_RIGHT)
